@@ -2,6 +2,7 @@
 // The express module is a light framework for web dev. It serves as a server, with many uses involving http requests.
 const { response } = require('express');
 const express = require('express');
+const { uuid, isUuid } = require('uuidv4');
 
 // Creating an instance of the object imported above (which is the Express module) to the app variable.
 // This allows to call functions by using the variable name (in this case, "app" (i.e. app.xxx, app.yyy))
@@ -28,48 +29,108 @@ Route Params: Mainly used with PUT/PATCH (when something is specific, like users
 Request Body: Mainly used with POST (to create or edit a resource), obtained using => request.body --- JSON format is a standard for it's usage (like SISREG stuff I do with Python at work using requests/elasticsearch)
 */
 
+/*
+Middleware: Interceptor of requests that can completely INTERRUPT it or CHANGE data within a request.
+These can be used to VALIDATE actions as well.
+
+There are 3 main ways of using it:
+1) Through app.use(xxxx) (which is global, meaning every route will have use it, xxxx being the name of the function)
+2) Through app.use(specifyARoute/) (which every route that has the same specified path will use it, i.e. xxxx)
+3) Through direct specification, as a parameter of a route, i.e. app.get('/projects', MIDDLEWARE_NAME_HERE, (request, response) => {} ...
+
+Routes can be classified as a middleware (get/post/put/delete/etc) for educational purposes,
+However proper "Middlewares" are declared with a "next" parameter which helps to identificate it (exemple down below at code)
+*/
+
+// List to save my projects, allowing them to be shown and/or found to be modified, deleted.
+const projects = [];
+
+// This is a middleware. Without returning next(), which is literally the thing that it should run in the first place, the app/code freezes (like a WHILE without exit)
+function logRequests(request, response, next) {
+    const { method, url } = request;
+
+    const logLabel = `[${method.toUpperCase()}] ${url}`; // `` allows to use variables within strings, similar to Python's f"".
+
+    console.time(logLabel); // Similar to the stuff I do with time module in Python to control program speed. This prints logLabel (above)
+
+    next(); // This executes the "normal" route (for example, app.get)
+
+    console.timeEnd(logLabel); // Complement to the action above, this prints how long it took (from start to finish of action)
+}
+
+// Middleware (function) to validate if given Id is valid in uuid format
+function validateProjectId(request, response, next) {
+    const { id } = request.params;
+
+    if (!isUuid(id)) {
+        return response.status(400).json({ error: 'Invalid project ID.'});
+    }
+
+    return next();
+}
+
+// Global usage of middleware. More could be specified, giving the function bellow more parameters if needed (every route will trigger it)
+app.use(logRequests);
+
+// Specified usage of middlaware (only works on given path). Like mentioned before, more functions could be passed here.
+app.use('/projects/:id', validateProjectId);
+
+// Shows every project created or a specifc one, through the verification made inside it
 app.get('/projects', (request, response) => {
-    const { title, owner } = request.query; // Allows me to receive this info from GET verb and work it within my code.
+    const { title } = request.query; // Allows me to receive this info from GET verb and work it within my code.
 
-    console.log(title);
-    console.log(owner);
+    // if a title is given, search for every project that has it's info. else, show all projects
+    const results = title
+        ? projects.filter(project => project.title.includes(title))
+        : projects;
 
-    return response.json([
-        'Projeto 1',
-        'Projeto 2'
-    ]);
+    return response.json(results);
 });
 
+// Create a project
 app.post('/projects', (request, response) => {
     const { title, owner } = request.body; // Allows me to receive this info from POST verb, when info is send through body (mainly JSON).
 
-    console.log(title);
-    console.log(owner);
+    const project = { id: uuid(), title, owner };
 
-    return response.json([
-        'Projeto 1',
-        'Projeto 2',
-        'Projeto 3'
-    ]);
+    projects.push(project); // Created object is pushed into list
+
+    return response.json(project);
 });
 
 app.put('/projects/:id', (request, response) => {
     const { id } = request.params; // Allows me to receive this info from PUT verb and work it within my code. (this is not 100% clear, check it later)
+    const { title, owner } = request.body;
+    
+    const projectIndex = projects.findIndex(project => project.id === id);
 
-    console.log(id);
+    if (projectIndex < 0) {
+        return response.status(400).json({ error: 'Project not found.'});
+    }
 
-    return response.json([
-        'Projeto 4',
-        'Projeto 2',
-        'Projeto 3'
-    ]);
+    const project = {
+        id,
+        title,
+        owner
+    };
+    
+    projects[projectIndex] = project;
+    
+    return response.json(project);
 });
 
-app.delete('/projects', (request, response) => {
-    return response.json([
-        'Projeto 2',
-        'Projeto 3'
-    ]);
+app.delete('/projects/:id', (request, response) => {
+    const { id } = request.params;
+
+    const projectIndex = projects.findIndex(project => project.id === id);
+
+    if (projectIndex < 0) {
+        return response.status(400).json({ error: 'Project not found.'});
+    }
+
+    projects.splice(projectIndex, 1);
+    
+    return response.status(204).send();
 });
 
 // This "creates" the server/application using port 3333, which it "listens" to waiting for new interactions.
